@@ -1,6 +1,8 @@
 $MOD85
 ; This is an edited version of the original disassembly by Edgar
 ; http://matthieu.benoit.free.fr/aval/PKW.ASM
+; It mainly has more comments to better understand it.
+; TODO: Better aliases...
 ; set tabstop=4 for correct alignment
 
 ;-----------------------------------------------------------------------------
@@ -2756,7 +2758,7 @@ PR0E16:	MVI		A,002H			;
 ;?MONITOR
 ;--------------------------------------------------------------------
 PR0E1B:	RST		FUN5			;
-		DB		0DH,0AH,'PKW-300','0'+80H
+		DB		0DH,0AH,'Hellorld','!'+80H
 		MVI		A,001H			;
 B16:	STA		D6067			;
 ;--------------------------------------------------------------------
