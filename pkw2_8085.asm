@@ -28,12 +28,12 @@ FUN7:    EQU        7
 ;------------------------------------------------------------------------------
 ;8155
 ;------------------------------------------------------------------------------
-IO6CMD:    EQU        068H        ;COMMAND/STATUS
-LEDSEG:    EQU        069H        ;PA         Display Output
-DKSELB:    EQU        06AH        ;PB         Disp.-Nr SELECT / Key-Col SELECT / Beeper
-KROWIN:    EQU        06BH        ;PC 0..5    Key-Rows INPUT
-TIMLOW:    EQU        06CH        ;TIMER LOW
-TIMHIG:    EQU        06DH        ;TIMER HIGH
+PIO6CMD:    EQU        068H        ;COMMAND/STATUS
+PLEDSEG:    EQU        069H        ;PA         Display Output
+PDKSELB:    EQU        06AH        ;PB         Disp.-Nr SELECT / Key-Col SELECT / Beeper
+PKROWIN:    EQU        06BH        ;PC 0..5    Key-Rows INPUT
+PTIMLOW:    EQU        06CH        ;TIMER LOW
+PTIMHIG:    EQU        06DH        ;TIMER HIGH
 ;*************************************************
 ;* PORT 68H (READ-WRITE) COMMAND/STATUS
 ;*************************************************
@@ -102,10 +102,10 @@ TIMHIG:    EQU        06DH        ;TIMER HIGH
 ;------------------------------------------------------------------------------
 ;DYNAMIC RAM
 ;------------------------------------------------------------------------------
-PORT80:    EQU        080H        ;
-PORT81:    EQU        081H
-PORT82:    EQU        082H
-PORT83:    EQU        083H
+P80RAM:    EQU        080H        ;
+P81RAM:    EQU        081H
+P82RAM:    EQU        082H
+P83RAM:    EQU        083H
 ;*************************************************
 ;* PORT 80H (WRITE)
 ;*************************************************
@@ -139,10 +139,10 @@ PORT83:    EQU        083H
 ;------------------------------------------------------------------------------
 ;8255
 ;------------------------------------------------------------------------------
-EPRDAT:    EQU        0A0H
-EPRADR:    EQU        0A1H
-EPADR2:    EQU        0A2H
-IOACMD:    EQU        0A3H
+PEPRDAT:    EQU        0A0H
+PEPRADR:    EQU        0A1H
+PEPRAD2:    EQU        0A2H
+PIOACMD:    EQU        0A3H
 ;*************************************************
 ;* PORT A0H (READ/WRITE)
 ;*************************************************
@@ -237,7 +237,7 @@ D6042:    DS        2            ;
 D6044:    DS        2            ;
 D6046:    DS        2            ;
 D6048:    DS        8            ;
-D6050:    DS        8            ;
+ROWDATA:  DS        8            ; Keyboard ROW 0-7 Data read from Port 6B (PR0374:)
 D6058:    DS        1            ;
 D6059:    DS        1            ;
 D605A:    DS        1            ;
@@ -246,17 +246,18 @@ D605C:    DS        2            ;
 D605E:    DS        2            ;
 D6060:    DS        1            ;W?
 D6061:    DS        1            ;
-D6062:    DS        2            ;
-D6064:    DS        1
-D6065:    DS        1            ; ? counts up during key reading?
-D6066:    DS        1
 ; Xn - Parameters see Manual p.4-11(pdf p.63)
+; -------------------------------------------
+RAMSTA:   DS        2            ; X5 default 00 = RAM @ 8000H
+TAPFMT:   DS        1            ; X6 default 01 = Intellec Hex
+D6065:    DS        1            ; ? counts up during key reading?
+SETSTA:   DS        1            ; X7 default 00 = see Manual 3-7-7 p.3-21(pdf p.45)
 D6067:    DS        1
-D6068:    DS        1            ; X8 default 02H = STX
+STACOD:   DS        1            ; X8 default 02H = STX
 D6069:    DS        1
-D606A:    DS        1            ; X9 default 03H = ETX
+STOCOD:   DS        1            ; X9 default 03H = ETX
 D606B:    DS        1
-D606C:    DS        1            ; PR112A writes the selected keyrow/leddigit
+D606C:    DS        1            ; Selected keyrow/leddigit (PR112A sets this)
 D606D:    DS        1            ; Port C3 setting, at Boot set to 92H
 D606E:    DS        1            ; Port C1 setting, at Boot set to 00H
 D606F:    DS        1
@@ -282,14 +283,14 @@ START:    DI
           JMP        START1
           RST        7
 ;--------------------------------------------------------------------
-;
+; PUT
 ;--------------------------------------------------------------------
 RST1V:    JMP        PR03CE            ;0008=
           RST        7
 X000C:    JMP        PR020B            ;000C=
           RST        7
 ;--------------------------------------------------------------------
-;
+; GET
 ;--------------------------------------------------------------------
 RST2V:    JMP        PR0403            ;0010=
           RST        7
@@ -311,37 +312,37 @@ RST3V:    JMP        PR0270            ;0018 =
 ;--------------------------------------------------------------------
 ;
 ;--------------------------------------------------------------------
-RST4V:    JMP        PR082E            ;0020 =
+RST4V:    JMP        RST4            ;0020 =
           RST        7
 ;--------------------------------------------------------------------
 ;TRAP INTERRUPT HANDLER
 ;--------------------------------------------------------------------
-          JMP        PR0BA8            ;0024 =
+          JMP        RST4B            ;0024 =
           RST        7
 ;--------------------------------------------------------------------
 ;
 ;--------------------------------------------------------------------
-RST5V:    JMP        PR07DD            ;0028 =
+RST5V:    JMP        RST5            ;0028 =
           RST        7
 ;--------------------------------------------------------------------
 ;RST 5.5 INTERRUPT
 ;--------------------------------------------------------------------
-          JMP        PR0B79            ;002C =
+          JMP        RST55            ;002C =
           RST        7
 ;--------------------------------------------------------------------
 ;
 ;--------------------------------------------------------------------
-RST6V:    JMP        PR07BD            ;0030 =
+RST6V:    JMP        RST6            ;0030 =
           RST        7
 ;--------------------------------------------------------------------
 ;RST 6.5 INTERRUPT HANDLER
 ;--------------------------------------------------------------------
-          JMP        PR0C4F            ;0034 =
+          JMP        RST65            ;0034 =
           RST        7
 ;--------------------------------------------------------------------
 ;
 ;--------------------------------------------------------------------
-RST7V:    JMP        PR0112            ;0038 =
+RST7V:    JMP        RST7            ;0038 =
           RST        7
 ;--------------------------------------------------------------------
 ;RST 7.5 INTERRUPT HANDLER
@@ -363,16 +364,16 @@ A04:      POP       H                  ;
           EI                           ;
           RET                          ;
 ;--------------------------------------------------------------------
-;
+; Populate Parameter default values
 ;--------------------------------------------------------------------
 START1:   CALL      PR0084             ;
-          LXI       H,D6064            ;
+          LXI       H,TAPFMT           ; Set Tape Format
           INR       M                  ; at boot, from 0 to 1
-          MVI       L,LOW(D6068)       ;
-          MVI       M,002H             ; ? some X Parameter
+          MVI       L,LOW(STACOD)      ;
+          MVI       M,002H             ; Set Start Code to STX=02H (for 'ASCII Hex Space' tape format)
           INX       H                  ;
-          INX       H                  ;
-          MVI       M,003H             ;D606A = X9 Parameter
+          INX       H                  ; move pointer to next parameter
+          MVI       M,003H             ; Set Stop Code to ETX=03H (for 'ASCII Hex Space' tape format)
 START2:   LDA       D6067              ; ? what's in 6067?
           CPI       003H               ;
           JNC       PR115F             ;
@@ -393,21 +394,21 @@ START4:   LXI       SP,STK             ; 760k ! to here...
 PR0084:   MVI       A,05BH             ;
           SIM                          ;
           MVI       A,070H             ;
-          OUT       TIMLOW             ;
+          OUT       PTIMLOW             ;
           MVI       A,0D7H             ;
-          OUT       TIMHIG             ;
+          OUT       PTIMHIG             ;
           MVI       A,0C3H             ;
-          OUT       IO6CMD             ;
+          OUT       PIO6CMD             ;
           MVI       A,091H             ;
           OUT       IOCCMD             ;
 ; 091H Configures the 8255 PPI ports as follows:
 ; Port A: Input Port B: Output Port C Upper (PC7-PC4): Output Port C Lower (PC3-PC0): Input
           MVI       B,010H             ;
           MVI       A,002H             ; 02H = DRAM read
-          OUT       PORT80             ;
+          OUT       P80RAM             ;
           XRA       A                  ;
-A01:      OUT       PORT81             ;
-          OUT       PORT82             ;
+A01:      OUT       P81RAM             ;
+          OUT       P82RAM             ;
           DCR       B                  ;
           JNZ       A01                ;
           MVI       B,040H             ; 
@@ -484,7 +485,7 @@ PR010D:   LDA      D6071               ;
 ;--------------------------------------------------------------------
 ;
 ;--------------------------------------------------------------------
-PR0112:   PUSH     B                   ;
+RST7:   PUSH     B                   ;
           PUSH     H                   ;
           LXI      H,D6071             ;
           XRA      A                   ;
@@ -516,7 +517,7 @@ PR0131:   CALL     PR0174              ;
 PR0135:   CALL     PR0DD4              ;
 ;--------------------------------------------------------------------
 ; ? Write Display Data (used Ports)
-; first called in Bootup after 761k cycles
+;   first called in Bootup after 761k cycles
 ;--------------------------------------------------------------------
 PR0138:   PUSH     D                   ;
           PUSH     H                   ;
@@ -537,9 +538,9 @@ A11:      LXI      D,LEDMAP            ;
           DAD      D                   ;
           LDA      D606C               ; read which digit was last selected?
           ANI      077H                ; mask out bit 4 and 7
-          OUT      DKSELB              ;
+          OUT      PDKSELB             ;
           MOV      A,M                 ;
-A12:      OUT      LEDSEG              ;
+A12:      OUT      PLEDSEG             ;
           POP      H                   ;
           POP      D                   ;
           RET                          ;
@@ -554,7 +555,7 @@ A15:      STA      D6041               ;
           RET                          ;
 ;--------------------------------------------------------------------
 ; read eprom-type switch-states
-; first called after 761k cycles
+;   first called after 761k cycles
 ;--------------------------------------------------------------------
 PR0174:   LXI      H,D6075             ;
           MOV      A,M                 ; read last state from 6075?
@@ -631,17 +632,17 @@ A19:      CALL      PR01D1             ;
 ;--------------------------------------------------------------------
 ; only called from PR01A9 (twice)
 ;--------------------------------------------------------------------
-PR01CF:   OUT       DKSELB             ;
+PR01CF:   OUT       PDKSELB             ;
 ;--------------------------------------------------------------------
 ; ? get key row readings
 ;--------------------------------------------------------------------
 PR01D1:   DI                           ;
           PUSH      PSW                ;
-          CALL      PR0374             ; row C8 > stored to 6050
+          CALL      PR0374             ; row C8 > stored to ROWDATA
           CALL      PR0374             ; C9 to 6051
           CALL      PR0374             ; CA to 6052
           XRA       A                  ;
-          OUT       LEDSEG             ; why blank led segments?
+          OUT       PLEDSEG             ; why blank led segments?
           POP       PSW                ;
           RET                          ;
 ;2nd pass 5D > 6053 5C > 6054 ...
@@ -655,7 +656,7 @@ PR01E1:   MOV       A,H                ;
 ;
 ;--------------------------------------------------------------------
 PR01E6:   PUSH      PSW                ;
-          LDA       D6064              ;
+          LDA       TAPFMT              ;
           CPI       005H               ;
           JNZ       A19X               ;!!    
           POP       PSW                ;
@@ -682,7 +683,7 @@ PR0203:   ANI       00FH               ;
           ACI       040H               ;
           DAA                          ;
 ;--------------------------------------------------------------------
-;Read Keys (It reads from KROWIN... )
+;Read Keys (It reads from PKROWIN... )
 ; Specifically read in Terminal Mode? (It does R/W to PORTC=RS232)
 ;--------------------------------------------------------------------
 PR020B:   PUSH      B                  ;
@@ -693,15 +694,15 @@ PR020B:   PUSH      B                  ;
           MVI       D,009H             ;
           DI                           ;
           XRA       A                  ; Clear Display
-          OUT       LEDSEG             ;
+          OUT       PLEDSEG             ;
           LDA       D606C              ;
           ANI       0E0H               ;
-          OUT       DKSELB             ;
+          OUT       PDKSELB             ;
           ORI       009H               ;
-          OUT       DKSELB             ;
+          OUT       PDKSELB             ;
           LXI       B,0105H            ;
           CALL      PR02F0             ;DELAY?
-          IN        KROWIN             ;
+          IN        PKROWIN             ;
           ANI       004H               ;
           JNZ       START2             ;
           CALL      PR0961             ;
@@ -747,7 +748,7 @@ PR0270:   PUSH      B                  ;
           LXI       D,K0800            ;
           DI                           ;
           XRA       A                  ;
-          OUT       LEDSEG             ; clear Display
+          OUT       PLEDSEG             ; clear Display
           LDA       D6067              ;
           CPI       002H               ;
           JNC       A23                ;
@@ -884,7 +885,7 @@ A31:      MOV       A,M                ;
 ;
 ;--------------------------------------------------------------------
 PR0347:   XRA       A                  ;
-          LXI       H,D6050            ;
+          LXI       H,ROWDATA            ;
           LXI       D,07FFH            ;
           PUSH      PSW                ;
 A32:      MVI       B,004H             ;
@@ -918,7 +919,7 @@ A34:      DCR       B                  ;
 ;--------------------------------------------------------------------
 ; Read Key Rows in Normal-mode (Mode after Boot)? 
 ;   It reads from PORTB... 
-;   ... After setting the Key COL to read (OUT DKSELB) see also PR020B
+;   ... After setting the Key COL to read (OUT PDKSELB) see also PR020B
 ;   In Simulator, this is for a long time called every ~230 cycles after boot.
 ;--------------------------------------------------------------------
 PR0374:   PUSH      B                  ;
@@ -926,21 +927,21 @@ PR0374:   PUSH      B                  ;
           LXI       H,D6065            ;
           XRA       A                  ;
           MOV       B,A                ;
-          OUT       LEDSEG             ; clear display
+          OUT       PLEDSEG             ; clear display
           MOV       A,M                ;
           INR       M                  ;
           ANI       007H               ;
           MOV       C,A                ;
           MVI       L,LOW(D606C)       ;
           ORA       M                  ;
-          OUT       DKSELB             ; select LED Digit?
+          OUT       PDKSELB             ; select LED Digit?
           MVI       L,LOW(D6048)       ;
           DAD       B                  ;
           MOV       A,M                ;
-          OUT       LEDSEG             ; set display (A not empty)
-          MVI       L,LOW(D6050)       ;
+          OUT       PLEDSEG             ; set display (A not empty)
+          MVI       L,LOW(ROWDATA)       ;
           DAD       B                  ;
-          IN        KROWIN             ;
+          IN        PKROWIN             ;
           MOV       M,A                ;
           MOV       A,C                ;
           CPI       006H               ;
@@ -949,15 +950,14 @@ PR0374:   PUSH      B                  ;
           RET                          ;
 ;--------------------------------------------------------------------
 ; 7-Segment Display Character Table
-;--------------------------------------------------------------------
-; accessed from PR0138-A11 and PR031F-A31
-; never on bootup, so the dash-display on bootup is hardcoded?
+;   accessed from PR0138-A11 and PR031F-A31
+;   never on bootup, so the dash-display on bootup is hardcoded?
 ;--------------------------------------------------------------------
 
 LEDMAP:   DB        03FH,006H,05BH,04FH     ; 0 1 2 3
           DB        066H,06DH,07DH,027H     ; 4 5 6 7
-          DB        07FH,067H,077H,07CH     ; 8 9 A B
-          DB        039H,05EH,079H,071H     ; C D E F
+          DB        07FH,067H,077H,07CH     ; 8 9 A b
+          DB        039H,05EH,079H,071H     ; C d E F
           DB        000H,040H,05CH,073H     ;   - o P (blank,dash,o,P)
           DB        038H,079H,039H,01EH     ; L E C J
           DB        077H                    ; A
@@ -971,9 +971,11 @@ LEDMAP:   DB        03FH,006H,05BH,04FH     ; 0 1 2 3
 ;  e       c
 ;  |       |
 ;   ---d---
-;           dp (decimal point, normally bottom-right)
+;           --
+;          |dp| (decimal point, normally bottom-right)
+;           -- 
 ;--------------------------------------------------------------------
-;
+;LED Segment Bitmap
 ;--------------------------------------------------------------------
 ;d
 ;p
@@ -1000,12 +1002,14 @@ LEDMAP:   DB        03FH,006H,05BH,04FH     ; 0 1 2 3
 ;missing for writing "Hellorld!" on Display:
 ;            H
 ;            r
-;--------------------------------------------------------------------
+;-------------------------------------------
 ; F7H should be the character "°A" (A with dp in upper-left), see Manual page 1-9
 ; (It can be triggered by pressing the "-" key in normal mode)
 ; but it's not in the source, must be coded differently?
+
+
 ;--------------------------------------------------------------------
-; Keycodes, see manual Page 3-26 (pdf p.50), Schematic Pages 4 & 11
+; Map of Keycodes, see manual Page 3-26 (pdf p.50), Schematic Pages 4 & 11
 ;   (RST Key is hard-wired to CPU-Reset)
 ;--------------------------------------------------------------------
 ;                  Electrical Key Layout
@@ -1014,6 +1018,7 @@ LEDMAP:   DB        03FH,006H,05BH,04FH     ; 0 1 2 3
 ;                    w      w      w      w
 ;           
 ;                    0      1      2      3
+;--------------------------------------------------------------------
 		    
 ;                    5 ,    B ,   PRG,   SET
 KEYMAP:  DB        005H,  00BH,  013H,  012H    ; Col 0 (Set = Col 8)
@@ -1057,11 +1062,11 @@ PR03DB:  PUSH      B                  ;
          MVI       C,008H             ;
          DI                           ;
 A35:     ANI       001H               ;
-         OUT       PORT80             ;
+         OUT       P80RAM             ;
          MOV       A,L                ;
-         OUT       PORT81             ;
+         OUT       P81RAM             ;
          MOV       A,H                ;
-         OUT       PORT82             ;
+         OUT       P82RAM             ;
          MOV       A,B                ;
          RRC                          ;
          MOV       B,A                ;
@@ -1094,13 +1099,13 @@ PR040E:  PUSH      B                  ;
          DAD       H                  ;
          LXI       B,8                ;
          MVI       A,002H             ;
-         OUT       PORT80             ;
+         OUT       P80RAM             ;
          DI                           ;
 A38:     MOV       A,L                ;
-         OUT       PORT81             ;
+         OUT       P81RAM             ;
          MOV       A,H                ;
-         OUT       PORT82             ;
-         IN        PORT83             ;
+         OUT       P82RAM             ;
+         IN        P83RAM             ;
          ANI       001H               ;
          ORA       B                  ;
          RRC                          ;
@@ -1695,7 +1700,7 @@ A74:     JNZ       ERRMSG             ;
          MOV       A,B                ;
          CALL      PR020B             ;
          LXI       H,0                ;
-A75:     CALL      PR07BD             ;
+A75:     CALL      RST6               ;
          JMP       A72                ;
 ;--------------------------------------------------------------------
 ;
@@ -1717,11 +1722,11 @@ PR07AA:  CPI       00AH               ;
 ;--------------------------------------------------------------------
 ;
 ;--------------------------------------------------------------------
-PR07BD:  RST       FUN3               ;
+RST6:    RST       FUN3               ;
          ANI       07FH               ;
-         JZ        PR07BD             ;
+         JZ        RST6               ;
          CPI       07FH               ;
-         JZ        PR07BD             ;
+         JZ        RST6               ;
          RET                          ;
 ;--------------------------------------------------------------------
 ;
@@ -1751,10 +1756,10 @@ PR07DA:  RST       FUN5               ;
 ;--------------------------------------------------------------------
 ;
 ;--------------------------------------------------------------------
-PR07DD:  XTHL                         ;
+RST5:    XTHL                         ;
          CALL      PR07E4             ;
          XTHL                         ;
-         XRA       A                  ;
+         XRA       A                  ; clear A
          RET                          ;
 ;--------------------------------------------------------------------
 ;
@@ -1783,7 +1788,7 @@ A76:     DAD       D                  ;
 ;--------------------------------------------------------------------
 ;
 ;--------------------------------------------------------------------
-PR07FF:  LDA       D6066              ;
+PR07FF:  LDA       SETSTA             ;
          ANI       010H               ;
          MOV       A,B                ;
          JZ        A77                ;
@@ -1820,7 +1825,7 @@ PR0815:  PUSH      D                  ;
 ;RST 4 ENTRY POINT
 ;PICKS BYTE AFTER RST CODE
 ;--------------------------------------------------------------------
-PR082E:  XTHL                         ;
+RST4:    XTHL                         ;
          MOV       A,M                ;
          INX       H                  ;
          XTHL                         ;
@@ -1914,9 +1919,9 @@ A82:     CALL      PR020B             ;
 PR0896:  MVI       B,00AH             ;
          JMP       A81                ;
 ;--------------------------------------------------------------------
-;
+; Tape something... (loads tape format)
 ;--------------------------------------------------------------------
-PR089B:  LDA       D6064              ;
+PR089B:  LDA       TAPFMT              ;
          ORA       A                  ;
          JZ        D6080              ;
          DCR       A                  ;
@@ -1963,14 +1968,14 @@ A84:     CALL      PR085D             ;
 ;--------------------------------------------------------------------
 ; Tape format 'ascii hex space' related? Loads X8, X9 Parameters
 ;--------------------------------------------------------------------
-PR08F8:  LDA       D6068              ;
+PR08F8:  LDA       STACOD              ;
          CALL      PR020B             ;
 A84X:    RST       RSTGET             ;!!
          CALL      PR01FB             ;
          CALL      PR07DA             ;
          CALL      PR085C             ;
          JNC       A84X               ;
-         LDA       D606A              ;
+         LDA       STOCOD              ;
          JMP       PR020B             ;
 ;--------------------------------------------------------------------
 ;
@@ -2023,7 +2028,7 @@ PR0951:  CALL      PR07F1             ;
 PR0961:  LDA       D6067              ;
          SUI       002H               ;
          RNZ                          ;
-         LDA       D6066              ;
+         LDA       SETSTA             ;
          CMA                          ;
          ANI       002H               ;
          RET                          ;
@@ -2199,7 +2204,7 @@ PR0A56:  LXI       H,0                ;
          MVI       L,LOW(D6000)       ;
          CALL      PR07FF             ;
          SHLD      D6077              ;
-         LDA       D6064              ;
+         LDA       TAPFMT             ;
          ORA       A                  ;
          JZ        D6080              ;
          DCR       A                  ;
@@ -2213,7 +2218,7 @@ PR0A56:  LXI       H,0                ;
          DCR       A                  ;
          JZ        A91                ;
          RNZ                          ;
-A91:     CALL      PR0B79             ;
+A91:     CALL      RST55              ;
          RST       RSTRX              ;
          SUI       02FH               ;
          JNZ       A91                ;
@@ -2244,14 +2249,14 @@ A91:     CALL      PR0B79             ;
 ;--------------------------------------------------------------------
 ;
 ;--------------------------------------------------------------------
-PR0AB2:  LDA       D6068              ;
+PR0AB2:  LDA       STACOD             ;
          ORA       A                  ;
          JZ        A92                ;
          MOV       B,A                ;
 A93:     CALL      PR0ADB             ;
          CMP       B                  ;
          JNZ       A93                ;
-A92:     CALL      PR0B79             ;
+A92:     CALL      RST55              ;
          CALL      PR0863             ;
          JC        A92                ;
          CALL      PR09FA             ;
@@ -2266,7 +2271,7 @@ A92:     CALL      PR0B79             ;
 ;--------------------------------------------------------------------
 PR0ADB:  RST       RSTRX              ;
          PUSH      H                  ;
-         LXI       H,D606A            ;
+         LXI       H,STOCOD           ;
          CMP       M                  ;
          POP       H                  ;
          JZ        PR0BF9             ;
@@ -2274,7 +2279,7 @@ PR0ADB:  RST       RSTRX              ;
 ;--------------------------------------------------------------------
 ;
 ;--------------------------------------------------------------------
-PR0AE6:  CALL      PR0B79             ;
+PR0AE6:  CALL      RST55              ;
          RST       RSTRX              ;
          CPI       'S'                ;
          JNZ       PR0AE6             ;
@@ -2316,7 +2321,7 @@ PR0B26:  LDA       D6067              ;
          JZ        A93X               ;
          DCR       A                  ;
          RNZ                          ;
-A93X:    LDA       D6066              ;!!
+A93X:    LDA       SETSTA             ;!!
          CMA                          ;
          ANI       004H               ;
          RET                          ;
@@ -2342,7 +2347,7 @@ A94:     RST       FUN3               ;
 ;--------------------------------------------------------------------
 ;
 ;--------------------------------------------------------------------
-PR0B50:  CALL      PR0B79             ;
+PR0B50:  CALL      RST55             ;
          RST       RSTRX              ;
          SUI       ':'                ;
          JNZ       PR0B50             ;
@@ -2369,7 +2374,7 @@ PR0B50:  CALL      PR0B79             ;
 ;--------------------------------------------------------------------
 ;RST 5.5 INTERRUPT HANDLER
 ;--------------------------------------------------------------------
-PR0B79:  LDA       D605B              ;
+RST55:   LDA       D605B              ;
          ORA       A                  ;
          RZ                           ;
          CALL      PR085D             ;
@@ -2406,7 +2411,7 @@ A97:     MOV       D,A                ;
 ;--------------------------------------------------------------------
 ;TRAP INTERRUPT HANDLER ?
 ;--------------------------------------------------------------------
-PR0BA8:  XCHG                         ;
+RST4B:   XCHG                         ;
          SHLD      D6077              ;
          XCHG                         ;
 ;--------------------------------------------------------------------
@@ -2421,7 +2426,7 @@ PR0BAD:  LDA       D605B              ;
          RET                          ;
 A98:     ANA       D                  ;
          ADI       080H               ;
-         LXI       H,D6062            ;
+         LXI       H,RAMSTA           ;
          ADD       M                  ;
          MOV       H,A                ;
          MOV       L,E                ;
@@ -2445,7 +2450,7 @@ A99:     CALL      PR09FA             ;
          CALL      PR0BF2             ;
          ORA       D                  ;
          MOV       D,A                ;
-         LDA       D6064              ;
+         LDA       TAPFMT             ;
          CPI       005H               ;
          JNZ       B00                ;
          MOV       A,D                ;
@@ -2509,7 +2514,7 @@ PR0C11:  PUSH      H                  ;
 ;--------------------------------------------------------------------
 PR0C18:  PUSH      PSW                ;
          PUSH      B                  ;
-         LDA       D6066              ;
+         LDA       SETSTA             ;
          MOV       B,A                ;
          ANI       010H               ;
          JZ        B04                ;
@@ -2543,7 +2548,7 @@ B04:     POP       B                  ;
 ;--------------------------------------------------------------------
 ;RST 6.5 INTERRUPT HANDLER
 ;--------------------------------------------------------------------
-PR0C4F:  PUSH      B                  ;
+RST65:  PUSH      B                  ;
          MOV       C,A                ;
          LDA       D605A              ;
          ORA       A                  ;
@@ -2649,7 +2654,7 @@ B13:     LXI       H,K8000            ;
          POP       PSW                ;
          CALL      PR0712             ;
          CALL      PR07D7             ;
-         CALL      PR07BD             ;
+         CALL      RST6               ;
          CALL      PR07AA             ;
          RC                           ;
          MOV       B,A                ;
@@ -2687,7 +2692,7 @@ PR0D1A:  XRA       A                  ;
          MOV       A,M                ;
          CALL      PR01FB             ;
          CALL      PR07D7             ;
-         CALL      PR07BD             ;
+         CALL      RST6             ;
          CALL      PR07AA             ;
          RZ                           ;
          XCHG                         ;
@@ -2819,7 +2824,7 @@ PR0E1B:  RST       FUN5               ;
          MVI       A,001H             ;
 B16:     STA       D6067              ;
 ;--------------------------------------------------------------------
-;
+; Send Command Prompt (*)
 ;--------------------------------------------------------------------
 PR0E2B:  LXI       SP,STK             ;
          RST       FUN5               ;
@@ -2827,7 +2832,7 @@ PR0E2B:  LXI       SP,STK             ;
          CALL      PR019A             ;
          LXI       H,D6074            ;
          DCR       M                  ;
-         CALL      PR07BD             ;
+         CALL      RST6             ;
          CALL      PR020B             ;
          INR       M                  ;
          CALL      PR00FC             ;
@@ -2840,17 +2845,17 @@ B17:     INX       H                  ;
          CMP       M                  ;
          INX       H                  ;
          JNZ       B17                ;
-         CALL      PR07BD             ;
+         CALL      RST6             ;
          CALL      PR07AA             ;
          JNC       PR0E6A             ;            
          INX       H                  ;
          CALL      PR0DC7             ;
 ;--------------------------------------------------------------------
-;
+; Check Command-Error
 ;--------------------------------------------------------------------
-PR0E5F:  JZ        PR0E2B             ;
+PR0E5F:  JZ        PR0E2B             ; Mem.Location is 0E60h (one address higher than original because the hellorld string is one byte longer than the orig. PKW-...). It is the first entry on the Stack when in Command Mode.
 ;--------------------------------------------------------------------
-; Error-Message (?) 
+; Send Command-Error Message (?) 
 ;--------------------------------------------------------------------
 ERRMSG:  CALL      PR0181             ;
          RST       FUN5               ;
@@ -2881,58 +2886,76 @@ PR0E6A:  MOV       B,A                ;
 ;--------------------------------------------------------------------
 ; Commands (from Terminal mode?) See Manual A-1 (pdf p.82)
 ; used in PR0E2B and PR0D99
+; what are the numbers? seems (max.?) bytes of argument, not really clear to me...
 ;--------------------------------------------------------------------
 CMDMAP:  DB        'W'                ;
          DB        1                  ;
          DW        PR0EEB             ;
+
          DB        'L'                ;
-         DB         2                 ;
+         DB         2                 ; Takes 2chars, hex data value
          DW        PR0F89             ;
+
          DB        'E'                ;
          DB        0                  ;
          DW        PR1012             ;
+
          DB        'C'                ;
          DB        3                  ;
          DW        PR0F94             ;
+
          DB        'D'                ;
          DB        4                  ;
          DW        PR0C75             ;
+
          DB        'G'                ;
          DB        0                  ;
          DW        PR0951             ;
+
          DB        'S'                ;
          DB        0                  ;
          DW        PR0B15             ;
+
          DB        'A'                ;
          DB        0                  ;
          DW        PR0EE8             ;
+
          DB        'X'                ;
          DB        7                  ;
          DW        ERRMSG             ;
+
          DB        'M'                ;
          DB        8                  ;
          DW        ERRMSG             ;
+
          DB        'B'                ;
          DB        0                  ;
          DW        PR05FC             ;
+
          DB        'O'                ;
          DB        0                  ;
          DW        PR0601             ;
+
          DB        'P'                ;
          DB        5                  ;
          DW        PR087E             ;
+
          DB        'R'                ;
          DB        6                  ;
          DW        PR0A16             ;
+
          DB        'W'                ;
          DB        0                  ;
          DW        PR0E1B             ;
+
          DB        'W'                ;
          DB         0                 ;
          DW        PR0E16             ;
-         DB        02FH               ;
+
+         DB        '/'                ; return from Command- to Key- Mode
          DB        0                  ;
          DW        START3             ;
+
          DB        0FFH               ;
          DB        0                  ;
          DW        PR115F             ;
@@ -3036,7 +3059,7 @@ B21:     CNZ       PR0652             ;
          MOV       A,C                ;
          INR       A                  ;
          JNZ       B23                ;
-B22:     LDA       D6066              ;
+B22:     LDA       SETSTA              ;
          RRC                          ;
          JC        B24                ;
 B23:     CALL      PR10D8             ;
@@ -3119,7 +3142,7 @@ B28:     PUSH      H                  ;
 ;--------------------------------------------------------------------
 ;
 ;--------------------------------------------------------------------
-PR0FF7:  LDA       D6066              ;
+PR0FF7:  LDA       SETSTA              ;
          ANI       008H               ;
          LDA       D6073              ;
          RZ                           ;
@@ -3213,7 +3236,7 @@ PR106A:  PUSH      B                  ;
          MVI       L,0E0H             ;??
 B33:     LDA       D606F              ;
          ORA       L                  ;
-         OUT       EPADR2             ;
+         OUT       PEPRAD2             ;
          PUSH      PSW                ;
          POP       PSW                ;
          IN        SWSTAT             ; Port C0H
@@ -3264,7 +3287,7 @@ PR10C1:  LDA       D605A              ;
          RST       RSTPUT             ;
          XCHG                         ;
          RET                          ;
-B36:     LDA       D6066              ;
+B36:     LDA       SETSTA              ;
          RRC                          ;
          RNC                          ;
          CALL      PR10D8             ;
@@ -3321,7 +3344,7 @@ PR110E:  PUSH      PSW                ;
 ;--------------------------------------------------------------------
 ; Called from PR00AB... with A=92H
 ;--------------------------------------------------------------------
-PR1113:  OUT       IOACMD             ;
+PR1113:  OUT       PIOACMD             ;
          STA       D606D              ;
          RET                          ;
 ;--------------------------------------------------------------------
@@ -3339,7 +3362,7 @@ PR1119:  LDA       D606B              ;
 ;   only called from PR00AB, why not inline there? 
 ;   JMP above, RET below, no other way to get here...?
 ;--------------------------------------------------------------------
-PR112A:  OUT       DKSELB             ;
+PR112A:  OUT       PDKSELB             ;
          STA       D606C              ;
          RET                          ;
 ;--------------------------------------------------------------------
@@ -3372,20 +3395,20 @@ PR113F:  PUSH      PSW                ;
 ;--------------------------------------------------------------------
 ;
 ;--------------------------------------------------------------------
-PR114A:  OUT       EPRDAT             ;
+PR114A:  OUT       PEPRDAT             ;
          MOV       A,E                ;
-         OUT       EPRADR             ;
+         OUT       PEPRADR             ;
          MOV       A,D                ;
          ANI       01FH               ;
          MOV       D,A                ;
          LDA       D606F              ;
          ANI       0E0H               ;
          ORA       D                  ;
-         OUT       EPADR2             ;
+         OUT       PEPRAD2             ;
          STA       D606F              ;
          RET                          ;
 ;--------------------------------------------------------------------
-; setup stuff, only called from START 2
+; setup stuff, only called from START 2 (and in command Mode upon detecting FFH? see CMDMAP)
 ;--------------------------------------------------------------------
 PR115F:  LXI       SP,STK             ;
          MVI       A,003H             ;
@@ -3436,7 +3459,7 @@ PR119A:  MVI       A,004H             ;
 B38:     CALL      PR02F0             ;
          CALL      PR010D             ;
          RC                           ;
-         CNZ       PR0112             ;
+         CNZ       RST7             ;
          RC                           ;
          LXI       H,D6048            ;
          MVI       B,008H             ;
@@ -3482,7 +3505,7 @@ PR11E6:  RST       FUN3               ;
 ;--------------------------------------------------------------------
 ;
 ;--------------------------------------------------------------------
-PR11F0:  LDA       D6066              ;
+PR11F0:  LDA       SETSTA              ;
          ANI       080H               ;
          JZ        PR0181             ;
          LXI       H,K8080            ;
@@ -3503,7 +3526,7 @@ B41:     RST       RSTGET             ;
 ;--------------------------------------------------------------------
 ;
 ;--------------------------------------------------------------------
-PR120B:  LDA       D6066              ;
+PR120B:  LDA       SETSTA              ;
          ANI       080H               ;
          JZ        PR0181             ;
          CALL      PR0615             ;
