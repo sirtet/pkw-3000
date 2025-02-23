@@ -32,14 +32,24 @@ PIO6CMD:    EQU        068H        ;COMMAND/STATUS
 PLEDSEG:    EQU        069H        ;PA         Display Output
 PDKSELB:    EQU        06AH        ;PB         Disp.-Nr SELECT / Key-Col SELECT / Beeper
 PKROWIN:    EQU        06BH        ;PC 0..5    Key-Rows INPUT
-PTIMLOW:    EQU        06CH        ;TIMER LOW
-PTIMHIG:    EQU        06DH        ;TIMER HIGH
+PTIMLOW:    EQU        06CH        ;TIMER LOW      set to 70H
+PTIMHIG:    EQU        06DH        ;TIMER HIGH            D7H 
 ;*************************************************
 ;* PORT 68H (READ-WRITE) COMMAND/STATUS
 ;*************************************************
 ;*  7  *  6  *  5  *  4  *  3  *  2  *  1  *  0  *
 ;*************************************************
 ;   |-----|-----|-----|-----|-----|-----|-----|------- 8155 COMMAND/STATUS-REGISTER SEE DATASHEET
+;   0     1     0     1     1     0     1     1        set at boot to 05BH
+;   |     |     |     |     |     |     |     |
+;   |     |     |     |     |     |     |     |------- Port A        : OUT (LEDSEG)
+;   |     |     |     |     |     |     |------------- Port B        : OUT (Disp./Key-sel, beep, etc.)
+;   |     |     |     |     A-----A------------------- Port C Mode   : ALT4
+;   |     |     |     |------------------------------- PA interrupt  : enabled 
+;   |     |     |------------------------------------- PB interrupt  : disabled
+;   T-----T------------------------------------------- Timer Command : Continuous Square Wave
+;   Timer is fed by CPU Clock, so it's a programmable divider to the 6MHz(?) 6Mhz/D770h = 108Hz = 9.25mS ?
+;
 ;*************************************************
 ;* PORT 69H (READ-WRITE) 7 SEGMENT DATA
 ;*************************************************
@@ -65,7 +75,6 @@ PTIMHIG:    EQU        06DH        ;TIMER HIGH
 ;   ---d---
 ;           dp (decimal point, normally bottom-right)
 ; PKW-3000 dp Position varies between digits. See Manual, LED-Test, p.3-25(pdf p.49)
-;              
 ;
 ;*************************************************
 ;* PORT 6AH (READ-WRITE) 
@@ -237,7 +246,8 @@ D6042:    DS        2            ;
 D6044:    DS        2            ;
 D6046:    DS        2            ;
 D6048:    DS        8            ;
-ROWDATA:  DS        8            ; Keyboard ROW 0-7 Data read from Port 6B (PR0374:)
+ROWDATA:  DS        8            ; 6050H ff... Keyrow0-7 Data (see KEYMAP:)read from Port 6B (PR0374:)
+; all set to C0 in a Mem-Dump on the live system
 D6058:    DS        1            ;
 D6059:    DS        1            ;
 D605A:    DS        1            ;
@@ -249,15 +259,15 @@ D6061:    DS        1            ;
 ; Xn - Parameters see Manual p.4-11(pdf p.63)
 ; -------------------------------------------
 RAMSTA:   DS        2            ; X5 default 00 = RAM @ 8000H
-TAPFMT:   DS        1            ; X6 default 01 = Intellec Hex
+TAPFMT:   DS        1            ; X6 default 04 = ASCII Hex Space
 D6065:    DS        1            ; ? counts up during key reading?
 SETSTA:   DS        1            ; X7 default 00 = see Manual 3-7-7 p.3-21(pdf p.45)
-D6067:    DS        1
+D6067:    DS        1            ; ?loaded in START2
 STACOD:   DS        1            ; X8 default 02H = STX
 D6069:    DS        1
 STOCOD:   DS        1            ; X9 default 03H = ETX
 D606B:    DS        1
-D606C:    DS        1            ; Selected keyrow/leddigit (PR112A sets this)
+D606C:    DS        1            ; Selected keyrow/leddigit (PR112A sets this), C8-CF for row 0-7
 D606D:    DS        1            ; Port C3 setting, at Boot set to 92H
 D606E:    DS        1            ; Port C1 setting, at Boot set to 00H
 D606F:    DS        1
@@ -267,7 +277,7 @@ X6072:    DS        1
 D6073:    DS        1
 D6074:    DS        1
 D6075:    DS        1            ; switchstate, read by PR0174
-D6076:    DS        1
+D6076:    DS        1            ; stored from PR0DD4: accessed from PR0F37:
 D6077:    DS        2
 D6079:    DS        2
 D607B:    DS        2
@@ -346,6 +356,10 @@ RST7V:    JMP        RST7            ;0038 =
           RST        7
 ;--------------------------------------------------------------------
 ;RST 7.5 INTERRUPT HANDLER
+;  This is triggered by the timer-out pin of the 8155 
+;  every 9.25mS (?) (counter set to D770 = 55'152 CPU clockcycles) see PORT 68H description
+;  or is it half that speed? double? can't get my head around the datasheet and this video:
+;  youtube.com/watch?v=kagzY65Z_Yg
 ;--------------------------------------------------------------------
 L003C:    PUSH      PSW                ;003C =            
           PUSH      H                  ;
@@ -366,20 +380,27 @@ A04:      POP       H                  ;
 ;--------------------------------------------------------------------
 ; Populate Parameter default values
 ;--------------------------------------------------------------------
-START1:   CALL      PR0084             ;
-          LXI       H,TAPFMT           ; Set Tape Format
-          INR       M                  ; at boot, from 0 to 1
+START1:   CALL      PR0084             ; configure 8155 (Timer)
+          LXI       H,TAPFMT           ; load addr. of Tape-Format Parameter
+;         INR       M                  ; increment from 0 to 1 to set the default? Strange. why not MVI M,01 ?
+          MVI       M,004H             ; I want default tape format = 4 ('ASCII Hex Space', better for experimenting)
           MVI       L,LOW(STACOD)      ;
-          MVI       M,002H             ; Set Start Code to STX=02H (for 'ASCII Hex Space' tape format)
+;         MVI       M,002H             ; Set Start-Byte (for 'ASCII Hex Space' tape format) to STX=02H
+                                       ; Start/Stop Bytes can be changed by command X8/X9, but are lost on reset.
+                                       ; as i can't enter the ASCII Chars [STX]&[ETX] manually, i set it to capital Letters S and X
+                                       ; because they are not in Hex E to F and are the first and last chars in the default [STX] and [ETX]
+                                       ; This way, playing around with the tape commands is easyer, Tape Data can now be typed in.
+          MVI       M,053H             ; changing default to char. 'S'=53H
           INX       H                  ;
           INX       H                  ; move pointer to next parameter
-          MVI       M,003H             ; Set Stop Code to ETX=03H (for 'ASCII Hex Space' tape format)
+;         MVI       M,003H             ; Set Stop-Byte (for 'ASCII Hex Space' tape format) to ETX=03H
+          MVI       M,058H             ; changing default to char. 'X'=58H
 START2:   LDA       D6067              ; ? what's in 6067?
           CPI       003H               ;
           JNC       PR115F             ;
           ORA       A                  ;
           JNZ       PR0E2B             ;
-START3:   CALL      PR0196             ; 3k cycles to here
+START3:   CALL      PR0196             ; 8085 Simulator: 3k clock cycles to here
 START4:   LXI       SP,STK             ; 760k ! to here...
           CALL      PR00EE             ;
           PUSH      PSW                ;
@@ -392,7 +413,7 @@ START4:   LXI       SP,STK             ; 760k ! to here...
 ; INIT Timer, PORT C, ram? called from START 1
 ;--------------------------------------------------------------------
 PR0084:   MVI       A,05BH             ;
-          SIM                          ;
+          SIM                          ; Set Interrupt Mask to 5b=0101 1011
           MVI       A,070H             ;
           OUT       PTIMLOW             ;
           MVI       A,0D7H             ;
@@ -634,7 +655,7 @@ A19:      CALL      PR01D1             ;
 ;--------------------------------------------------------------------
 PR01CF:   OUT       PDKSELB             ;
 ;--------------------------------------------------------------------
-; ? get key row readings
+; ? get key row readings (?? reads only 3 rows (at a time?))
 ;--------------------------------------------------------------------
 PR01D1:   DI                           ;
           PUSH      PSW                ;
@@ -696,7 +717,7 @@ PR020B:   PUSH      B                  ;
           XRA       A                  ; Clear Display
           OUT       PLEDSEG             ;
           LDA       D606C              ;
-          ANI       0E0H               ;
+          ANI       0E0H               ; Mask out bits 0-4
           OUT       PDKSELB             ;
           ORI       009H               ;
           OUT       PDKSELB             ;
@@ -840,9 +861,9 @@ A0305:    DW        013AH              ;
           DW        0523H              ;
           DW        0C58H              ;
 ;--------------------------------------------------------------------
-;
+; only called from Interrupt 7.5
 ;--------------------------------------------------------------------
-PR0311:   CALL      PR0374             ;
+PR0311:   CALL      PR0374             ; ?read 1 Key row?
           RNZ                          ;
           EI                           ;
           CALL      PR0347             ;
@@ -885,7 +906,7 @@ A31:      MOV       A,M                ;
 ;
 ;--------------------------------------------------------------------
 PR0347:   XRA       A                  ;
-          LXI       H,ROWDATA            ;
+          LXI       H,ROWDATA          ;
           LXI       D,07FFH            ;
           PUSH      PSW                ;
 A32:      MVI       B,004H             ;
@@ -917,7 +938,7 @@ A34:      DCR       B                  ;
           MOV       M,C                ;
           RET                          ;
 ;--------------------------------------------------------------------
-; Read Key Rows in Normal-mode (Mode after Boot)? 
+; Read single Key Row in Normal-mode (Mode after Boot)? 
 ;   It reads from PORTB... 
 ;   ... After setting the Key COL to read (OUT PDKSELB) see also PR020B
 ;   In Simulator, this is for a long time called every ~230 cycles after boot.
@@ -958,7 +979,7 @@ LEDMAP:   DB        03FH,006H,05BH,04FH     ; 0 1 2 3
           DB        066H,06DH,07DH,027H     ; 4 5 6 7
           DB        07FH,067H,077H,07CH     ; 8 9 A b
           DB        039H,05EH,079H,071H     ; C d E F
-          DB        000H,040H,05CH,073H     ;   - o P (blank,dash,o,P)
+          DB        000H,040H,05CH,073H     ;   - o P (blank,dash...)
           DB        038H,079H,039H,01EH     ; L E C J
           DB        077H                    ; A
 ;--------------------------------------------------------------------
@@ -981,27 +1002,27 @@ LEDMAP:   DB        03FH,006H,05BH,04FH     ; 0 1 2 3
 ;p
 ; gfedcba
 ;--------------------------------------------------------------------
-;00111111    0
-;00000110    1
-;01011011    2
-;01001111    3
-;01100110    4
-;01101101    5
-;01111101    6
-;00100111    7
-;01111111    8
-;01100111    9
-;01110111    A
-;00000000    [blank]
-;01000000    -
-;            o (used in tests)
-;            P
-;            L
-;            J
+;00111111    0       3F
+;00000110    1       06
+;01011011    2       5B
+;01001111    3       4F
+;01100110    4       66
+;01101101    5       6D
+;01111101    6       7D
+;00100111    7       27
+;01111111    8       7F
+;01100111    9       67
+;01110111    A       77
+;00000000    [blank] 00
+;01000000    -       40
+;01011100    o       5C     (used in tests)
+;            P       73
+;            L       38
+;            J       1E
 ;-------------------------------------------
 ;missing for writing "Hellorld!" on Display:
-;            H
-;            r
+;01110110    H       76
+;01010000    r       50
 ;-------------------------------------------
 ; F7H should be the character "°A" (A with dp in upper-left), see Manual page 1-9
 ; (It can be triggered by pressing the "-" key in normal mode)
@@ -1011,6 +1032,7 @@ LEDMAP:   DB        03FH,006H,05BH,04FH     ; 0 1 2 3
 ;--------------------------------------------------------------------
 ; Map of Keycodes, see manual Page 3-26 (pdf p.50), Schematic Pages 4 & 11
 ;   (RST Key is hard-wired to CPU-Reset)
+;   Keypresses (<>Keycodes!) are being read from Port 06BH, written to Memory 
 ;--------------------------------------------------------------------
 ;                  Electrical Key Layout
 ;                    R      R      R      R
@@ -1019,12 +1041,13 @@ LEDMAP:   DB        03FH,006H,05BH,04FH     ; 0 1 2 3
 ;           
 ;                    0      1      2      3
 ;--------------------------------------------------------------------
-		    
+; Port 6B values:    1      2      4      8
+;--------------------------------------------------------------------
 ;                    5 ,    B ,   PRG,   SET
-KEYMAP:  DB        005H,  00BH,  013H,  012H    ; Col 0 (Set = Col 8)
+KEYMAP:  DB        005H,  00BH,  013H,  012H    ; Col 0 & 8 (Set = Col 8)
 
 ;                    9 ,    F ,   JOB,    -    
-         DB        009H,  00FH,  017H,  011H    ; Col 1   (- = Col 7)
+         DB        009H,  00FH,  017H,  011H    ; Col 1 & 7 (- = Col 7)
         
 ;                    D ,    2 ,   CMP
          DB        00DH,  002H,  016H,  0FFH    ; Col 2
@@ -1800,7 +1823,7 @@ A77:     MOV       H,A                ;
          STA       D605B              ;
          JMP       A76                ;
 ;--------------------------------------------------------------------
-;
+; ? ASCII Hex Space Tape-Format related? LHLD      D6069   loads the start-byte (X8 Parameter)
 ;--------------------------------------------------------------------
 PR0815:  PUSH      D                  ;
          PUSH      H                  ;
@@ -2702,7 +2725,7 @@ PR0D1A:  XRA       A                  ;
          STAX      D                  ;
          RET                          ;
 ;--------------------------------------------------------------------
-;
+; accessed only from PR0815 which seems ASCII Tape format related...
 ;--------------------------------------------------------------------
 A0D45:   DB        020H,000H,083H,083H
          DB        085H,043H,045H,043H
@@ -2791,7 +2814,7 @@ PR0DD4:  PUSH      PSW                ;
          POP       PSW                ;
          RET                          ;
 ;--------------------------------------------------------------------
-;
+; accessed only from PR0DD4
 ;--------------------------------------------------------------------
 A0DF5:   DB        005H,002H,000H,008H
          DB        008H,003H,001H,008H
@@ -2820,7 +2843,8 @@ PR0E16:  MVI       A,002H             ;
 ; Terminal-Mode startup message
 ;--------------------------------------------------------------------
 PR0E1B:  RST       FUN5               ;
-         DB        0DH,0AH,'Hellorld','!'+80H
+         DB        0DH,0AH,'Hellorld!',0DH,0AH,
+		 DB        'X6=4(ASCII Hex Space) X8=53(S), X9=58(X',')'+80H
          MVI       A,001H             ;
 B16:     STA       D6067              ;
 ;--------------------------------------------------------------------
