@@ -28,4 +28,7 @@ How to use:
 2. Use a HEX editor to copy binary data in HEX-form
 3. Paste it into uploader.txt
 4. Use PuTTY/KiTTY's *Send script file* option with uploader.txt
-  or, use a paper tape to send the data in real style ;-)   
+  or, use a paper tape to send the data in real style ;-)
+
+Result of the first running version (HELLorLd finalally became HELLOrld)
+![hellorld-on-PKW-3000](https://raw.githubusercontent.com/sirtet/pkw-3000/refs/heads/main/hellorld-on-PKW-3000.jpg)
