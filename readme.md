@@ -23,12 +23,25 @@ As the name implies...
 A script file for PuTTY, used to send the hellorld binary to the Programmer
 
 ## HELLOrld
-How to use:
+An ordinary _Hellorld!_ written in (almost) bare metal assembly, that's being run rather unconventionally.
+
+The binary is not burned to ROM or loaded to RAM via some Infrastructure intended for the task.
+The Target PKW-3000 does not support running custom code, has no Command to execute code.
+But a Command meant to load ROM-Data from paper tape to the 64kbit x1 buffer-RAM,
+has the (most probably unintended) ability to also write to the 256byte system-RAM. 
+With it, code can be loaded to unused system-RAM areas. And by overwriting a return-address on the stack, also executed.
+
+Why _almost_ bare metal?  
+I was not able to identify keyboard- and display- routines in the ROM, so i write to the display-port directly.
+No calls of existing subroutines. But as the code is executed from the running system, the setup of the I/O ports is done by the ROM. 
+So because it _does_ depend on these setup routines, i consider my code as only _almost_ bare metal.
+
+### How to use the files in this Repo
 1. Use 8085 Simulator to save binary from hellorld.asm
 2. Use a HEX editor to copy binary data in HEX-form
 3. Paste it into uploader.txt
 4. Use PuTTY/KiTTY's *Send script file* option with uploader.txt
-  or, use a paper tape to send the data in real style ;-)
+  or, use a Paper Tape to send the data in real style ;-)
 
 Result of the first running version (HELLorLd finalally became HELLOrld)
 ![hellorld-on-PKW-3000](https://raw.githubusercontent.com/sirtet/pkw-3000/refs/heads/main/hellorld-on-PKW-3000.jpg)
